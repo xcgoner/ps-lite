@@ -7,6 +7,32 @@ PS-Lite-UDP
 --------
 Use UDP for communication
 
+Submodule:
+----------
+```
+# get the submodule initially
+git submodule add ssh://bla submodule_dir
+git submodule init
+
+# time passes, submodule upstream is updated
+# and you now want to update
+
+# change to the submodule directory
+cd submodule_dir
+
+# checkout desired branch
+git checkout master
+
+# update
+git pull
+
+# get back to your project root
+cd ..
+
+# now the submodules are in the state you want, so
+git commit -am "Pulled down update to submodule_dir"
+```
+
 A light and efficient implementation of the parameter server
 framework. It provides clean yet powerful APIs. For example, a worker node can
 communicate with the server nodes by

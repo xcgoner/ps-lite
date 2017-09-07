@@ -17,8 +17,8 @@ ifndef PROTOC
 PROTOC = ${DEPS_PATH}/bin/protoc
 endif
 
-INCPATH = -I./src -I./include -I$(DEPS_PATH)/include
-CFLAGS = -std=c++11 -msse2 -fPIC -O3 -ggdb -Wall -finline-functions $(INCPATH) $(ADD_CFLAGS)
+INCPATH = -I$(DEPS_PATH)/include -I./src -I./include 
+CFLAGS = $(INCPATH) -std=c++11 -msse2 -fPIC -O3 -ggdb -Wall -finline-functions $(ADD_CFLAGS)
 
 all: ps test
 

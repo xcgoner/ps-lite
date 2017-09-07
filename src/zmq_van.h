@@ -3,6 +3,7 @@
  */
 #ifndef PS_ZMQ_VAN_H_
 #define PS_ZMQ_VAN_H_
+#define ZMQ_BUILD_DRAFT_API 1
 #include <zmq.h>
 #include <stdlib.h>
 #include <thread>
@@ -69,6 +70,25 @@ class ZMQVan : public Van {
     for (int i = 0; i < max_retry+1; ++i) {
       auto address = addr + std::to_string(port);
       if (zmq_bind(receiver_, address.c_str()) == 0) break;
+      if (i == max_retry) {
+        port = -1;
+      } else {
+        port = 10000 + rand_r(&seed) % 40000;
+      }
+    }
+    return port;
+  }
+
+  int BindUDP(const Node& node, int max_retry) {
+    dish_ = zmq_socket(context_, ZMQ_DISH);
+    CHECK(dish_ != NULL)
+        << "create dish socket failed: " << zmq_strerror(errno);
+    std::string addr = "udp://*:";
+    int port = node.port;
+    unsigned seed = static_cast<unsigned>(time(NULL)+port);
+    for (int i = 0; i < max_retry+1; ++i) {
+      auto address = addr + std::to_string(port);
+      if (zmq_bind(dish_, address.c_str()) == 0) break;
       if (i == max_retry) {
         port = -1;
       } else {
@@ -236,6 +256,10 @@ class ZMQVan : public Van {
   std::unordered_map<int, void*> senders_;
   std::mutex mu_;
   void *receiver_ = nullptr;
+
+  // for UDP
+  void *radio_ = nullptr;
+  void *dish_ = nullptr;
 };
 }  // namespace ps
 

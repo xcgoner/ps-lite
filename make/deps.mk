@@ -19,12 +19,14 @@ ${PROTOBUF}:
 ZMQ = ${DEPS_PATH}/include/zmq.h
 
 ${ZMQ}:
-	$(eval FILE=zeromq-4.1.4.tar.gz)
-	$(eval DIR=zeromq-4.1.4)
+	# $(eval FILE=zeromq-4.1.4.tar.gz)
+	# $(eval DIR=zeromq-4.1.4)
+	$(eval FILE=zeromq-4.2.2.tar.gz)
+	$(eval DIR=zeromq-4.2.2)
 	rm -rf $(FILE) $(DIR)
-	$(WGET) $(URL)/$(FILE) && tar --no-same-owner -zxf $(FILE)
-	cd $(DIR) && export CFLAGS=-fPIC && export CXXFLAGS=-fPIC && ./configure -prefix=$(DEPS_PATH) --with-libsodium=no --with-libgssapi_krb5=no && $(MAKE) && $(MAKE) install
-	rm -rf $(FILE) $(DIR)
+	$(WGET) https://github.com/zeromq/libzmq/releases/download/v4.2.2/zeromq-4.2.2.tar.gz && tar --no-same-owner -zxf $(FILE)
+	cd $(DIR) && export CFLAGS=-fPIC && export CXXFLAGS=-fPIC && ./configure -prefix=$(DEPS_PATH) --enable-drafts=yes --with-libsodium=no --with-libgssapi_krb5=no && $(MAKE) && $(MAKE) install
+	# rm -rf $(FILE) $(DIR)
 
 # lz4
 LZ4 = ${DEPS_PATH}/include/lz4.h
