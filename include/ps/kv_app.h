@@ -326,7 +326,6 @@ class KVServer : public SimpleApp {
   ReqHandle request_handle_;
 };
 
-
 /**
  * \brief an example handle adding pushed kv into store
  */
@@ -602,6 +601,108 @@ int KVWorker<Val>::Pull_(
   Send(ts, false, cmd, kvs);
   return ts;
 }
+
+
+/////////////////////////////////////////////////////////////////////////////////
+
+/**
+ * \brief A UDP/passive server node for maintaining key-value pairs
+ */
+ template <typename Val>
+ class KVCheapServer : public SimpleApp {
+  public:
+   /**
+    * \brief constructor
+    * \param app_id the app id, should match with \ref KVWorker's id
+    */
+   explicit KVCheapServer(int app_id) : SimpleApp() {
+     using namespace std::placeholders;
+     obj_ = new Customer(app_id, std::bind(&KVCheapServer<Val>::Process, this, _1));
+   }
+ 
+   /** \brief deconstructor */
+   virtual ~KVCheapServer() { delete obj_; obj_ = nullptr; }
+ 
+   /**
+    * \brief the handle to process a push/pull request from a worker
+    * \param req_meta meta-info of this request
+    * \param req_data kv pairs of this request
+    * \param server this pointer
+    */
+   using ReqHandle = std::function<void(const KVMeta& req_meta,
+                                        const KVPairs<Val>& req_data,
+                                        KVCheapServer* server)>;
+   void set_request_handle(const ReqHandle& request_handle) {
+     CHECK(request_handle) << "invalid request handle";
+     request_handle_ = request_handle;
+   }
+ 
+   /**
+    * \brief cheap server do not response
+    */
+ 
+  private:
+   /** \brief internal receive handle */
+   void Process(const Message& msg);
+   /** \brief request handle */
+   ReqHandle request_handle_;
+ };
+
+ /**
+ * \brief an example handle adding pushed kv into store
+ */
+template <typename Val>
+struct KVCheapServerDefaultHandle {
+  void operator()(
+      const KVMeta& req_meta, const KVPairs<Val>& req_data, KVServer<Val>* server) {
+    size_t n = req_data.keys.size();
+    KVPairs<Val> res;
+    // only accept push request
+    // no pulling, the cheap server will actively cast the latest values
+    if (req_meta.push) {
+      CHECK_EQ(n, req_data.vals.size());
+    }
+    for (size_t i = 0; i < n; ++i) {
+      Key key = req_data.keys[i];
+      if (req_meta.push) {
+        store[key] += req_data.vals[i];
+      }
+    }
+    // no response for cheap server
+  }
+  std::unordered_map<Key, Val> store;
+};
+
+
+///////////////////////////////////////////////////////////////////////////////
+
+template <typename Val>
+void KVCheapServer<Val>::Process(const Message& msg) {
+  if (msg.meta.simple_app) {
+    SimpleApp::Process(msg); return;
+  }
+  KVMeta meta;
+  meta.cmd       = msg.meta.head;
+  meta.push      = msg.meta.push;
+  meta.sender    = msg.meta.sender;
+  meta.timestamp = msg.meta.timestamp;
+  KVPairs<Val> data;
+  int n = msg.data.size();
+  if (n) {
+    CHECK_GE(n, 2);
+    data.keys = msg.data[0];
+    data.vals = msg.data[1];
+    if (n > 2) {
+      CHECK_EQ(n, 3);
+      data.lens = msg.data[2];
+      CHECK_EQ(data.lens.size(), data.keys.size());
+    }
+  }
+  CHECK(request_handle_);
+  request_handle_(meta, data, this);
+}
+
+
 
 }  // namespace ps
 #endif  // PS_KV_APP_H_
