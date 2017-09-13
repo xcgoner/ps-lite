@@ -315,10 +315,10 @@ protected:
        << zmq_strerror(errno)
        << ". it often can be solved by \"sudo ulimit -n 65536\""
        << " or edit /etc/security/limits.conf";
-   if (my_node_.id != Node::kEmpty) {
-     std::string my_id = "ps" + std::to_string(my_node_.id);
-     zmq_setsockopt(sender, ZMQ_IDENTITY, my_id.data(), my_id.size());
-   }
+  //  if (my_node_.id != Node::kEmpty) {
+  //    std::string my_id = "ps" + std::to_string(my_node_.id);
+  //    zmq_setsockopt(sender, ZMQ_IDENTITY, my_id.data(), my_id.size());
+  //  }
    // connect
    std::string addr = "udp://" + node.hostname + ":" + std::to_string(node.port);
    // TODO: need checking
@@ -344,119 +344,52 @@ protected:
    void *socket = it->second;
 
    // send meta
-   int meta_size; char* meta_buf;
-   PackMeta(msg.meta, &meta_buf, &meta_size);
-   int tag = ZMQ_SNDMORE;
-   int n = msg.data.size();
-   if (n == 0) tag = 0;
-   zmq_msg_t meta_msg;
-   zmq_msg_init_data(&meta_msg, meta_buf, meta_size, FreeData, NULL);
+   int buf_size; char* data_buf;
+   PackMetaData(msg, my_node_.id, &data_buf, &buf_size);
+   int tag = 0;
+   zmq_msg_t metadata_msg;
+   zmq_msg_init_data(&metadata_msg, data_buf, buf_size, FreeData, NULL);
    while (true) {
-     if (zmq_msg_set_group(&meta_msg, ZMQ_GROUP_NAME) != 0) {
+     if (zmq_msg_set_group(&metadata_msg, ZMQ_GROUP_NAME) != 0) {
       LOG(WARNING) << "failed to send message to node [" << id
       << "] errno: " << errno << " " << zmq_strerror(errno);
       return -1;
      }
-     if (zmq_msg_send(&meta_msg, socket, tag) == meta_size) break;
+     if (zmq_msg_send(&metadata_msg, socket, tag) == buf_size) break;
      if (errno == EINTR) continue;
      LOG(WARNING) << "failed to send message to node [" << id
                   << "] errno: " << errno << " " << zmq_strerror(errno);
      return -1;
    }
-   zmq_msg_close(&meta_msg);
-   int send_bytes = meta_size;
+   zmq_msg_close(&metadata_msg);
 
-   // send data
-   for (int i = 0; i < n; ++i) {
-     zmq_msg_t data_msg;
-     SArray<char>* data = new SArray<char>(msg.data[i]);
-     int data_size = data->size();
-     zmq_msg_init_data(&data_msg, data->data(), data->size(), FreeData, data);
-     if (i == n - 1) tag = 0;
-     while (true) {
-       if (zmq_msg_set_group(&data_msg, ZMQ_GROUP_NAME) != 0) {
-        LOG(WARNING) << "failed to send message to node [" << id
-        << "] errno: " << errno << " " << zmq_strerror(errno);
-        return -1;
-       }
-       if (zmq_msg_send(&data_msg, socket, tag) == data_size) break;
-       if (errno == EINTR) continue;
-       LOG(WARNING) << "failed to send message to node [" << id
-                    << "] errno: " << errno << " " << zmq_strerror(errno)
-                    << ". " << i << "/" << n;
-       return -1;
-     }
-     zmq_msg_close(&data_msg);
-     send_bytes += data_size;
-   }
-   return send_bytes;
+   return buf_size;
  }
 
  int RecvMsg(Message* msg) override {
    msg->data.clear();
    size_t recv_bytes = 0;
-   for (int i = 0; ; ++i) {
-     zmq_msg_t* zmsg = new zmq_msg_t;
-     CHECK(zmq_msg_init(zmsg) == 0) << zmq_strerror(errno);
-     while (true) {
-       if (zmq_msg_recv(zmsg, receiver_, 0) != -1 && strcmp(zmq_msg_group(zmsg), ZMQ_GROUP_NAME) == 0) break;
-       if (errno == EINTR) continue;
-       LOG(WARNING) << "failed to receive message. errno: "
-                    << errno << " " << zmq_strerror(errno);
-       return -1;
-     }
-     char* buf = CHECK_NOTNULL((char *)zmq_msg_data(zmsg));
-     size_t size = zmq_msg_size(zmsg);
-     recv_bytes += size;
-
-     if (i == 0) {
-       // identify
-       msg->meta.sender = GetNodeID(buf, size);
-       msg->meta.recver = my_node_.id;
-       CHECK(zmq_msg_more(zmsg));
-       zmq_msg_close(zmsg);
-       delete zmsg;
-     } else if (i == 1) {
-       // task
-       UnpackMeta(buf, size, &(msg->meta));
-       zmq_msg_close(zmsg);
-       bool more = zmq_msg_more(zmsg);
-       delete zmsg;
-       if (!more) break;
-     } else {
-       // zero-copy
-       SArray<char> data;
-       data.reset(buf, size, [zmsg, size](char* buf) {
-           zmq_msg_close(zmsg);
-           delete zmsg;
-         });
-       msg->data.push_back(data);
-       if (!zmq_msg_more(zmsg)) { break; }
-     }
+   zmq_msg_t* zmsg = new zmq_msg_t;
+   CHECK(zmq_msg_init(zmsg) == 0) << zmq_strerror(errno);
+   while (true) {
+     if (zmq_msg_recv(zmsg, receiver_, 0) != -1 && strcmp(zmq_msg_group(zmsg), ZMQ_GROUP_NAME) == 0) break;
+     if (errno == EINTR) continue;
+     LOG(WARNING) << "failed to receive message. errno: "
+                  << errno << " " << zmq_strerror(errno);
+     return -1;
    }
+   char* buf = CHECK_NOTNULL((char *)zmq_msg_data(zmsg));
+   size_t size = zmq_msg_size(zmsg);
+   recv_bytes += size;
+
+   UnpackMetaData(buf, size, msg);
+   msg->meta.recver = my_node_.id;
+   zmq_msg_close(zmsg);
+   delete zmsg;
    return recv_bytes;
  }
 
 private:
- /**
-  * return the node id given the received identity
-  * \return -1 if not find
-  */
- int GetNodeID(const char* buf, size_t size) {
-   if (size > 2 && buf[0] == 'p' && buf[1] == 's') {
-     int id = 0;
-     size_t i = 2;
-     for (; i < size; ++i) {
-       if (buf[i] >= '0' && buf[i] <= '9') {
-         id = id * 10 + buf[i] - '0';
-       } else {
-         break;
-       }
-     }
-     if (i == size) return id;
-   }
-   return Meta::kEmpty;
- }
 
  void *context_ = nullptr;
  /**

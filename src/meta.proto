@@ -25,7 +25,7 @@ message PBControl {
   optional uint64 msg_sig = 4;
 }
 
-// mete information about a message
+// meta information about a message
 message PBMeta {
   // message.head
   optional int32 head = 1;
@@ -46,4 +46,31 @@ message PBMeta {
   optional bool push = 5;
   // whether or not it's for SimpleApp
   optional bool simple_app = 6 [default = false];
+}
+
+// data with meta
+message PBMetaData {
+  // message.head
+  optional int32 head = 1;
+  // message.body
+  optional bytes body = 2;
+  // if set, then it is system control task. otherwise, it is for app
+  optional PBControl control = 3;
+  // true: a request task
+  // false: the response task to the request task with the same *time*
+  optional bool request = 4 [default = false];
+  // the unique id of the sender
+  required int32 sender_id = 7;
+  // the unique id of an customer
+  optional int32 customer_id = 8;
+  // the timestamp of this message
+  optional int32 timestamp = 9;
+  // data type of message.data[i]
+  repeated int32 data_type = 10 [packed=true];
+  // whether or not a push message
+  optional bool push = 5;
+  // whether or not it's for SimpleApp
+  optional bool simple_app = 6 [default = false];
+  // data
+  repeated bytes data = 11;
 }

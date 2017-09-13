@@ -23,6 +23,8 @@ static const int kDefaultHeartbeatInterval = 0;
 Van* Van::Create(const std::string& type) {
   if (type == "zmq") {
     return new ZMQVan();
+  } else if (type == "zmqudp") {
+    return new ZMQUDPVan();
   } else {
     LOG(FATAL) << "unsupported van type: " << type;
     return nullptr;
@@ -403,6 +405,96 @@ void Van::UnpackMeta(const char* meta_buf, int buf_size, Meta* meta) {
     }
   } else {
     meta->control.cmd = Control::EMPTY;
+  }
+}
+
+void Van::PackMetaData(const Message& msg, int sender_id, char** data_buf, int* buf_size) {
+  // convert into protobuf
+  PBMetaData pb;
+  pb.set_head(msg.meta.head);
+  pb.set_sender_id(sender_id);
+  if (msg.meta.customer_id != Meta::kEmpty) pb.set_customer_id(msg.meta.customer_id);
+  if (msg.meta.timestamp != Meta::kEmpty) pb.set_timestamp(msg.meta.timestamp);
+  if (msg.meta.body.size()) pb.set_body(msg.meta.body);
+  pb.set_push(msg.meta.push);
+  pb.set_request(msg.meta.request);
+  pb.set_simple_app(msg.meta.simple_app);
+  for (auto d : msg.meta.data_type) pb.add_data_type(d);
+  if (!msg.meta.control.empty()) {
+    auto ctrl = pb.mutable_control();
+    ctrl->set_cmd(msg.meta.control.cmd);
+    if (msg.meta.control.cmd == Control::BARRIER) {
+      ctrl->set_barrier_group(msg.meta.control.barrier_group);
+    } else if (msg.meta.control.cmd == Control::ACK) {
+      ctrl->set_msg_sig(msg.meta.control.msg_sig);
+    }
+    for (const auto& n : msg.meta.control.node) {
+      auto p = ctrl->add_node();
+      p->set_id(n.id);
+      p->set_role(n.role);
+      p->set_port(n.port);
+      p->set_hostname(n.hostname);
+      p->set_is_recovery(n.is_recovery);
+    }
+  }
+  // data
+  for (auto d : msg.data) {
+    SArray<char>* data = new SArray<char>(d);
+    int data_size = data->size();
+    pb.add_data(data->data(), data_size);
+  }
+
+  // to string
+  *buf_size = pb.ByteSize();
+  *data_buf = new char[*buf_size+1];
+  CHECK(pb.SerializeToArray(*data_buf, *buf_size))
+      << "failed to serialize protbuf";
+}
+
+void Van::UnpackMetaData(const char* data_buf, int buf_size, Message* msg) {
+  // to protobuf
+  PBMetaData pb;
+  CHECK(pb.ParseFromArray(data_buf, buf_size))
+      << "failed to parse string into protobuf";
+
+  // to meta
+  msg->meta.head = pb.head();
+  msg->meta.sender = pb.sender_id();
+  msg->meta.customer_id = pb.has_customer_id() ? pb.customer_id() : Meta::kEmpty;
+  msg->meta.timestamp = pb.has_timestamp() ? pb.timestamp() : Meta::kEmpty;
+  msg->meta.request = pb.request();
+  msg->meta.push = pb.push();
+  msg->meta.simple_app = pb.simple_app();
+  msg->meta.body = pb.body();
+  msg->meta.data_type.resize(pb.data_type_size());
+  for (int i = 0; i < pb.data_type_size(); ++i) {
+    msg->meta.data_type[i] = static_cast<DataType>(pb.data_type(i));
+  }
+  if (pb.has_control()) {
+    const auto& ctrl = pb.control();
+    msg->meta.control.cmd = static_cast<Control::Command>(ctrl.cmd());
+    msg->meta.control.barrier_group = ctrl.barrier_group();
+    msg->meta.control.msg_sig = ctrl.msg_sig();
+    for (int i = 0; i < ctrl.node_size(); ++i) {
+      const auto& p = ctrl.node(i);
+      Node n;
+      n.role = static_cast<Node::Role>(p.role());
+      n.port = p.port();
+      n.hostname = p.hostname();
+      n.id = p.has_id() ? p.id() : Node::kEmpty;
+      n.is_recovery = p.is_recovery();
+      msg->meta.control.node.push_back(n);
+    }
+  } else {
+    msg->meta.control.cmd = Control::EMPTY;
+  }
+  // data
+  for (int i = 0; i < pb.data_size(); ++i) {
+    // TODO: zero-copy
+    // TODO: flatbuffers
+    SArray<char> data;
+    data.CopyFrom(pb.data(i).c_str(), pb.data(i).size());
+    msg->data.push_back(data);
   }
 }
 

@@ -99,6 +99,14 @@ class Van {
    * \brief unpack meta from a string
    */
   void UnpackMeta(const char* meta_buf, int buf_size, Meta* meta);
+    /**
+   * \brief pack meta and data into a string
+   */
+   void PackMetaData(const Message& msg, int sender_id, char** data_buf, int* buf_size);
+   /**
+    * \brief unpack meta and data from a string
+    */
+   void UnpackMetaData(const char* data_buf, int buf_size, Message* msg);
 
   Node scheduler_;
   Node my_node_;

@@ -10,7 +10,8 @@
 
 namespace ps {
 Postoffice::Postoffice() {
-  van_ = Van::Create("zmq");
+  // van_ = Van::Create("zmq");
+  van_ = Van::Create("zmqudp");
   env_ref_ = Environment::_GetSharedRef();
   const char* val = NULL;
   val = CHECK_NOTNULL(Environment::Get()->find("DMLC_NUM_WORKER"));
