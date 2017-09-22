@@ -10,14 +10,24 @@
 
 namespace ps {
 Postoffice::Postoffice() {
+  std::string van_mode = GetEnvStr("PS_VAN", "zmq");
   // van_ = Van::Create("zmq");
-  van_ = Van::Create("zmqudp");
+  // van_ = Van::Create("zmqudp");
+  van_ = Van::Create(van_mode);
   env_ref_ = Environment::_GetSharedRef();
   const char* val = NULL;
   val = CHECK_NOTNULL(Environment::Get()->find("DMLC_NUM_WORKER"));
   num_workers_ = atoi(val);
   val =  CHECK_NOTNULL(Environment::Get()->find("DMLC_NUM_SERVER"));
   num_servers_ = atoi(val);
+  if (van_mode == "zmq") {
+    num_keyranges_ = num_servers_;
+    chunky_message_ = false;
+  }
+  else {
+    num_keyranges_ = GetEnv("DMLC_NUM_KKERANGE", num_servers_);
+    chunky_message_ = true;
+  }
   val = CHECK_NOTNULL(Environment::Get()->find("DMLC_ROLE"));
   std::string role(val);
   is_worker_ = role == "worker";
@@ -134,13 +144,25 @@ void Postoffice::Barrier(int node_group) {
 
 const std::vector<Range>& Postoffice::GetServerKeyRanges() {
   if (server_key_ranges_.empty()) {
-    for (int i = 0; i < num_servers_; ++i) {
+    range_to_server_map_.clear();
+    int server_rank = 0;
+    // number of key ranges always geq number of servers
+    // mapping: key -> range -> server, to support chunky message
+    for (int i = 0; i < num_keyranges_; ++i) {
       server_key_ranges_.push_back(Range(
-          kMaxKey / num_servers_ * i,
-          kMaxKey / num_servers_ * (i+1)));
+          kMaxKey / num_keyranges_ * i,
+          kMaxKey / num_keyranges_ * (i+1)));
+      range_to_server_map_.push_back(server_rank);
+      server_rank = server_rank + 1;
+      server_rank = server_rank % num_servers_;
     }
   }
   return server_key_ranges_;
+}
+
+int Postoffice::RangeToServerRank(int range) {
+  // input the rank of the key range
+  return range_to_server_map_[range];
 }
 
 void Postoffice::Manage(const Message& recv) {

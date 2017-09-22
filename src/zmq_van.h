@@ -383,9 +383,9 @@ protected:
    recv_bytes += size;
 
    UnpackMetaData(buf, size, msg);
-   msg->meta.recver = my_node_.id;
    zmq_msg_close(zmsg);
    delete zmsg;
+   msg->meta.recver = my_node_.id;
    return recv_bytes;
  }
 

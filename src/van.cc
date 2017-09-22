@@ -24,6 +24,8 @@ Van* Van::Create(const std::string& type) {
   if (type == "zmq") {
     return new ZMQVan();
   } else if (type == "zmqudp") {
+    // debug
+    LG << "Using UDP!";
     return new ZMQUDPVan();
   } else {
     LOG(FATAL) << "unsupported van type: " << type;
@@ -489,6 +491,8 @@ void Van::UnpackMetaData(const char* data_buf, int buf_size, Message* msg) {
     msg->meta.control.cmd = Control::EMPTY;
   }
   // data
+  // // debug
+  // LG << "pb.data_size(): " << pb.data_size();
   for (int i = 0; i < pb.data_size(); ++i) {
     // TODO: zero-copy
     // TODO: flatbuffers

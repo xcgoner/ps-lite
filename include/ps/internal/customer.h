@@ -54,6 +54,7 @@ class Customer {
    * \return the timestamp of this request
    */
   int NewRequest(int recver);
+  // int NewRequest(int recver, int num_response = -1);
 
 
   /**
@@ -67,6 +68,12 @@ class Customer {
    * \param timestamp the timestamp of the request
    */
   int NumResponse(int timestamp);
+
+  //   /**
+  //  * \brief return the number of expected responses received for the request. threadsafe
+  //  * \param timestamp the timestamp of the request
+  //  */
+  //  int NumExpectedResponse(int timestamp);
 
   /**
    * \brief add a number of responses to timestamp
@@ -94,6 +101,9 @@ class Customer {
   std::mutex tracker_mu_;
   std::condition_variable tracker_cond_;
   std::vector<std::pair<int, int>> tracker_;
+  // // expected number of responses
+  // // -1 for default (number of servers)
+  // std::vector<int> response_tracker_;
 
   DISALLOW_COPY_AND_ASSIGN(Customer);
 };

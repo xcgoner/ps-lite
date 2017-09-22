@@ -36,6 +36,15 @@ inline V GetEnv(const char *key, V default_val) {
   }
 }
 
+inline std::string GetEnvStr(const char *key, std::string default_val) {
+  const char *val = Environment::Get()->find(key);
+  if (val == nullptr) {
+    return default_val;
+  } else {
+    return val;
+  }
+}
+
 #ifndef DISALLOW_COPY_AND_ASSIGN
 #define DISALLOW_COPY_AND_ASSIGN(TypeName) \
   TypeName(const TypeName&);               \

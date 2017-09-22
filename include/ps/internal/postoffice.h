@@ -69,6 +69,7 @@ class Postoffice {
    * \brief return the key ranges of all server nodes
    */
   const std::vector<Range>& GetServerKeyRanges();
+  int RangeToServerRank(int range);
   /**
    * \brief the template of a callback
    */
@@ -119,6 +120,8 @@ class Postoffice {
   int num_workers() const { return num_workers_; }
   /** \brief Returns the number of server nodes */
   int num_servers() const { return num_servers_; }
+  /** \brief Returns whether is using chunky message */
+  bool is_chunky() const { return chunky_message_; }
   /** \brief Returns the rank of this node in its group
    *
    * Each worker will have a unique rank within [0, NumWorkers()). So are
@@ -168,8 +171,10 @@ class Postoffice {
   std::unordered_map<int, Customer*> customers_;
   std::unordered_map<int, std::vector<int>> node_ids_;
   std::vector<Range> server_key_ranges_;
+  std::vector<int> range_to_server_map_;
   bool is_worker_, is_server_, is_scheduler_;
-  int num_servers_, num_workers_;
+  int num_servers_, num_workers_, num_keyranges_;
+  bool chunky_message_;
   bool barrier_done_;
   int verbose_;
   std::mutex barrier_mu_;
