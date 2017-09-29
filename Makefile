@@ -41,7 +41,8 @@ OBJS = $(addprefix build/, customer.o postoffice.o van.o meta.pb.o)
 build/libps.a: $(OBJS)
 	ar crv $@ $(filter %.o, $?)
 
-build/%.o: src/%.cc ${ZMQ} src/meta.pb.h src/meta_generated.h
+# build/%.o: src/%.cc ${ZMQ} src/meta.pb.h src/meta_generated.h
+build/%.o: src/%.cc ${ZMQ} src/meta.pb.h
 	@mkdir -p $(@D)
 	$(CXX) $(INCPATH) -std=c++0x -MM -MT build/$*.o $< >build/$*.d
 	$(CXX) $(CFLAGS) -c $< -o $@
@@ -49,8 +50,8 @@ build/%.o: src/%.cc ${ZMQ} src/meta.pb.h src/meta_generated.h
 src/%.pb.cc src/%.pb.h : src/%.proto ${PROTOBUF}
 	$(PROTOC) --cpp_out=./src --proto_path=./src $<
 
-src/%_generated.h : src/%.fbs ${FLATBUF}
-	$(FLATC) -c -o ./src $<
+# src/%_generated.h : src/%.fbs ${FLATBUF}
+# 	$(FLATC) -c -o ./src $<
 
 -include build/*.d
 -include build/*/*.d
