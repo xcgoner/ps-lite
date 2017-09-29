@@ -86,6 +86,12 @@ class Customer {
    */
   void Accept(const Message& recved) { recv_queue_.Push(recved); }
 
+  /**
+   * \brief accept a received with high priority message from \ref Van. threadsafe
+   * \param recved the received the message
+   */
+   void AcceptPriority(const Message& recved) { recv_queue_.PushPriority(recved); }
+
  private:
   /**
    * \brief the thread function

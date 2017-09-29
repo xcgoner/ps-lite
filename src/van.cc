@@ -364,6 +364,7 @@ void Van::PackMeta(const Meta& meta, char** meta_buf, int* buf_size) {
       p->set_is_recovery(n.is_recovery);
     }
   }
+  pb.set_iteration(meta.iteration);
 
   // to string
   *buf_size = pb.ByteSize();
@@ -408,9 +409,13 @@ void Van::UnpackMeta(const char* meta_buf, int buf_size, Meta* meta) {
   } else {
     meta->control.cmd = Control::EMPTY;
   }
+  meta->iteration = pb.iteration();
+
+  // as long as the message is unpacked from a buffer, it is not fake
+  meta->fake = false;
 }
 
-void Van::PackMetaData(const Message& msg, int sender_id, char** data_buf, int* buf_size) {
+void Van::PackMetaData(const Message& msg, int sender_id, uint8_t** data_buf, int* buf_size) {
   // convert into protobuf
   PBMetaData pb;
   pb.set_head(msg.meta.head);
@@ -448,12 +453,12 @@ void Van::PackMetaData(const Message& msg, int sender_id, char** data_buf, int* 
 
   // to string
   *buf_size = pb.ByteSize();
-  *data_buf = new char[*buf_size+1];
+  *data_buf = new uint8_t[*buf_size+1];
   CHECK(pb.SerializeToArray(*data_buf, *buf_size))
       << "failed to serialize protbuf";
 }
 
-void Van::UnpackMetaData(const char* data_buf, int buf_size, Message* msg) {
+void Van::UnpackMetaData(const uint8_t* data_buf, int buf_size, Message* msg) {
   // to protobuf
   PBMetaData pb;
   CHECK(pb.ParseFromArray(data_buf, buf_size))

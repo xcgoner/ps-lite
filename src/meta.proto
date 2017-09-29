@@ -46,6 +46,8 @@ message PBMeta {
   optional bool push = 5;
   // whether or not it's for SimpleApp
   optional bool simple_app = 6 [default = false];
+  // iteration counter for sync mode
+  optional int32 iteration = 10 [default = 0];
 }
 
 // data with meta

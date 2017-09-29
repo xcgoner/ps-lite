@@ -15,6 +15,16 @@ ${PROTOBUF}:
 	cd $(DIR) && export CFLAGS=-fPIC && export CXXFLAGS=-fPIC && ./configure -prefix=$(DEPS_PATH) && $(MAKE) && $(MAKE) install
 	rm -rf $(FILE) $(DIR)
 
+# flatbuffers
+FLATBUF = ${DEPS_PATH}/include/flatbuffers/flatbuffers.h
+${FLATBUF}:
+	$(eval FILE=v1.7.1.tar.gz)
+	$(eval DIR=flatbuffers-1.7.1)
+	rm -rf $(FILE) $(DIR)
+	$(WGET) https://github.com/google/flatbuffers/archive/v1.7.1.tar.gz && tar --no-same-owner -zxf $(FILE)
+	cd $(DIR) && export CFLAGS=-fPIC && export CXXFLAGS=-fPIC && cmake -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX=$(DEPS_PATH) && $(MAKE) install
+	rm -rf $(FILE) $(DIR)
+
 # zmq
 ZMQ = ${DEPS_PATH}/include/zmq.h
 
@@ -26,7 +36,7 @@ ${ZMQ}:
 	rm -rf $(FILE) $(DIR)
 	$(WGET) https://github.com/zeromq/libzmq/releases/download/v4.2.2/zeromq-4.2.2.tar.gz && tar --no-same-owner -zxf $(FILE)
 	cd $(DIR) && export CFLAGS=-fPIC && export CXXFLAGS=-fPIC && ./configure -prefix=$(DEPS_PATH) --enable-drafts=yes --with-libsodium=no --with-libgssapi_krb5=no && $(MAKE) && $(MAKE) install
-	# rm -rf $(FILE) $(DIR)
+	rm -rf $(FILE) $(DIR)
 
 # lz4
 LZ4 = ${DEPS_PATH}/include/lz4.h

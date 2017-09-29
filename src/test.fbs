@@ -1,0 +1,8 @@
+namespace ps;
+
+table TestMsg {
+  num:int;
+  str:string;
+}
+
+root_type TestMsg;

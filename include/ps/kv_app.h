@@ -39,6 +39,8 @@ struct KVPairs {
   SArray<Val> vals;
   /** \brief the according value lengths (could be empty) */
   SArray<int> lens;
+  /** \brief the iteration counter */
+  int iteration;
 };
 
 /**
@@ -176,13 +178,15 @@ class KVWorker : public SimpleApp {
             const SArray<Val>& vals,
             const SArray<int>& lens = {},
             int cmd = 0,
-            const Callback& cb = nullptr) {
+            const Callback& cb = nullptr,
+            int iteration = 0) {
     int ts = obj_->NewRequest(kServerGroup);
     AddCallback(ts, cb);
     KVPairs<Val> kvs;
     kvs.keys = keys;
     kvs.vals = vals;
     kvs.lens = lens;
+    kvs.iteration = iteration;
     Send(ts, true, cmd, kvs);
     return ts;
   }
@@ -199,8 +203,9 @@ class KVWorker : public SimpleApp {
             SArray<Val>* vals,
             SArray<int>* lens = nullptr,
             int cmd = 0,
-            const Callback& cb = nullptr) {
-    return Pull_(keys, vals, lens, cmd, cb);
+            const Callback& cb = nullptr,
+            int* iteration = nullptr) {
+    return Pull_(keys, vals, lens, cmd, cb, iteration);
   }
   using SlicedKVs = std::vector<std::pair<bool, KVPairs<Val>>>;
   /**
@@ -227,7 +232,7 @@ class KVWorker : public SimpleApp {
    */
   template <typename C, typename D>
   int Pull_(const SArray<Key>& keys, C* vals, D* lens,
-            int cmd, const Callback& cb);
+            int cmd, const Callback& cb, int* iteration);
   /**
    * \brief add a callback for a request. threadsafe.
    * @param cb callback
@@ -278,6 +283,10 @@ struct KVMeta {
   int sender;
   /** \brief the associated timestamp */
   int timestamp;
+  /** \brief customer id */
+  int customer_id;
+  /** \brief fake flag */
+  bool fake;
 };
 
 /**
@@ -366,18 +375,31 @@ void KVServer<Val>::Process(const Message& msg) {
   meta.push      = msg.meta.push;
   meta.sender    = msg.meta.sender;
   meta.timestamp = msg.meta.timestamp;
+  meta.customer_id = msg.meta.customer_id;
+  meta.fake = msg.meta.fake;
   KVPairs<Val> data;
-  int n = msg.data.size();
-  if (n) {
-    CHECK_GE(n, 2);
-    data.keys = msg.data[0];
-    data.vals = msg.data[1];
-    if (n > 2) {
-      CHECK_EQ(n, 3);
-      data.lens = msg.data[2];
-      CHECK_EQ(data.lens.size(), data.keys.size());
+  if (!meta.fake) {
+    int n = msg.data.size();
+    if (n) {
+      CHECK_GE(n, 2);
+      data.keys = msg.data[0];
+      data.vals = msg.data[1];
+      if (n > 2) {
+        CHECK_EQ(n, 3);
+        data.lens = msg.data[2];
+        CHECK_EQ(data.lens.size(), data.keys.size());
+      }
     }
   }
+  else {
+    int n = msg.data.size();
+    if (n) {
+      CHECK_EQ(n, 1);
+      data.keys = msg.data[0];
+    }
+  }
+  // iteration counter
+  data.iteration = msg.meta.iteration;
   CHECK(request_handle_);
   request_handle_(meta, data, this);
 }
@@ -391,6 +413,7 @@ void KVServer<Val>::Response(const KVMeta& req, const KVPairs<Val>& res) {
   msg.meta.head        = req.cmd;
   msg.meta.timestamp   = req.timestamp;
   msg.meta.recver      = req.sender;
+  msg.meta.iteration   = res.iteration;
   if (res.keys.size()) {
     msg.AddData(res.keys);
     msg.AddData(res.vals);
@@ -460,6 +483,9 @@ void KVWorker<Val>::DefaultSlicer(
 
 template <typename Val>
 void KVWorker<Val>::Send(int timestamp, bool push, int cmd, const KVPairs<Val>& kvs) {
+  // iteration couner
+  int iteration = kvs.iteration;
+
   // slice the message
   SlicedKVs sliced;
   slicer_(kvs, Postoffice::Get()->GetServerKeyRanges(), &sliced);
@@ -487,7 +513,10 @@ void KVWorker<Val>::Send(int timestamp, bool push, int cmd, const KVPairs<Val>& 
     msg.meta.push        = push;
     msg.meta.head        = cmd;
     msg.meta.timestamp   = timestamp;
-    msg.meta.recver      = Postoffice::Get()->ServerRankToID(i);
+    msg.meta.iteration = iteration;
+    // msg.meta.recver      = Postoffice::Get()->ServerRankToID(i);
+    // key range rank -> server rank -> server id
+    msg.meta.recver      = Postoffice::Get()->ServerRankToID(Postoffice::Get()->RangeToServerRank(i));
     const auto& kvs = s.second;
     if (kvs.keys.size()) {
       msg.AddData(kvs.keys);
@@ -505,7 +534,6 @@ void KVWorker<Val>::Send(int timestamp, bool push, int cmd, const KVPairs<Val>& 
   }
 }
 
-
 template <typename Val>
 void KVWorker<Val>::Process(const Message& msg) {
   if (msg.meta.simple_app) {
@@ -522,16 +550,18 @@ void KVWorker<Val>::Process(const Message& msg) {
     if (msg.data.size() > (size_t)2) {
       kvs.lens = msg.data[2];
     }
+    kvs.iteration = msg.meta.iteration;
     mu_.lock();
     recv_kvs_[ts].push_back(kvs);
     mu_.unlock();
   }
 
   // finished, run callbacks
-  if (obj_->NumResponse(ts) == Postoffice::Get()->num_servers() - 1)  {
+  if (obj_->NumResponse(ts) == Postoffice::Get()->GetServerKeyRanges().size() - 1)  {
     RunCallback(ts);
   }
 }
+
 template <typename Val>
 void KVWorker<Val>::RunCallback(int timestamp) {
   mu_.lock();
@@ -551,9 +581,9 @@ void KVWorker<Val>::RunCallback(int timestamp) {
 template <typename Val>
 template <typename C, typename D>
 int KVWorker<Val>::Pull_(
-    const SArray<Key>& keys, C* vals, D* lens, int cmd, const Callback& cb) {
+    const SArray<Key>& keys, C* vals, D* lens, int cmd, const Callback& cb, int* iteration) {
   int ts = obj_->NewRequest(kServerGroup);
-  AddCallback(ts, [this, ts, keys, vals, lens, cb]() mutable {
+  AddCallback(ts, [this, ts, keys, vals, lens, cb, iteration]() mutable {
       mu_.lock();
       auto& kvs = recv_kvs_[ts];
       mu_.unlock();
@@ -598,6 +628,7 @@ int KVWorker<Val>::Pull_(
           memcpy(p_lens, s.lens.data(), s.lens.size() * sizeof(int));
           p_lens += s.lens.size();
         }
+        if (s.iteration > *iteration) *iteration = s.iteration;
       }
 
       mu_.lock();
@@ -752,8 +783,8 @@ class KVCheapWorker : public SimpleApp {
     kvs.vals = vals;
     kvs.lens = lens;
     Send(ts, true, cmd, kvs);
-    // debug
-    LG << "ts:" << ts;
+    // // debug
+    // LG << "ts:" << ts;
     return ts;
   }
 
@@ -1038,8 +1069,8 @@ void KVCheapWorker<Val>::Send(int timestamp, bool push, int cmd, const KVPairs<V
   obj_->AddResponse(timestamp, skipped);
   if ((size_t)skipped == sliced.size()) {
     RunCallback(timestamp);
-    // debug
-    LG << "RunCallback ts:" << timestamp;
+    // // debug
+    // LG << "RunCallback ts:" << timestamp;
   }
 
   for (size_t i = 0; i < sliced.size(); ++i) {
@@ -1103,14 +1134,14 @@ void KVCheapWorker<Val>::Process(const Message& msg) {
 
   // finished, run callbacks
   // int num_expected_responses = std::max(obj_->NumExpectedResponse(ts), Postoffice::Get()->num_servers());
-  int num_expected_responses = Postoffice::Get()->GetServerKeyRanges().size();
+  // int num_expected_responses = Postoffice::Get()->GetServerKeyRanges().size();
   // process happen before the tracker increases, thus -1
   // if (obj_->NumResponse(ts) == Postoffice::Get()->num_servers() - 1)  {
   // if (!msg.meta.push) LG << "obj_->NumResponse(ts): " << obj_->NumResponse(ts) << ", num_expected_responses - 1: " << num_expected_responses - 1;
-  if (obj_->NumResponse(ts) == num_expected_responses - 1)  {
+  if (obj_->NumResponse(ts) == Postoffice::Get()->GetServerKeyRanges().size() - 1)  {
     RunCallback(ts);
-    // debug
-    LG << "RunCallback ts:" << ts;
+    // // debug
+    // LG << "RunCallback ts:" << ts;
     // LG << "Process finished";
   }
 }
@@ -1138,8 +1169,8 @@ int KVCheapWorker<Val>::Pull_(
     const SArray<Key>& keys, C* vals, D* lens, int cmd, const Callback& cb) {
       // LG << "keys.size(): " << keys.size();
   int ts = obj_->NewRequest(kServerGroup);
-  // debug
-  LG << "ts:" << ts;
+  // // debug
+  // LG << "ts:" << ts;
   // int ts = obj_->NewRequest(kServerGroup, keys.size());
   AddCallback(ts, [this, ts, keys, vals, lens, cb]() mutable {
       mu_.lock();

@@ -3,7 +3,8 @@
  */
 #ifndef PS_INTERNAL_THREADSAFE_QUEUE_H_
 #define PS_INTERNAL_THREADSAFE_QUEUE_H_
-#include <queue>
+// #include <queue>
+#include <deque>
 #include <mutex>
 #include <condition_variable>
 #include <memory>
@@ -24,7 +25,19 @@ template<typename T> class ThreadsafeQueue {
    */
   void Push(T new_value) {
     mu_.lock();
-    queue_.push(std::move(new_value));
+    // queue_.push(std::move(new_value));
+    queue_.push_back(std::move(new_value));
+    mu_.unlock();
+    cond_.notify_all();
+  }
+
+    /**
+   * \brief push an value into the head. threadsafe.
+   * \param new_value the value
+   */
+   void PushPriority(T new_value) {
+    mu_.lock();
+    queue_.push_front(std::move(new_value));
     mu_.unlock();
     cond_.notify_all();
   }
@@ -37,12 +50,14 @@ template<typename T> class ThreadsafeQueue {
     std::unique_lock<std::mutex> lk(mu_);
     cond_.wait(lk, [this]{return !queue_.empty();});
     *value = std::move(queue_.front());
-    queue_.pop();
+    // queue_.pop();
+    queue_.pop_front();
   }
 
  private:
   mutable std::mutex mu_;
-  std::queue<T> queue_;
+  // std::queue<T> queue_;
+  std::deque<T> queue_;
   std::condition_variable cond_;
 };
 

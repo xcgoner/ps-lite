@@ -20,14 +20,16 @@ Postoffice::Postoffice() {
   num_workers_ = atoi(val);
   val =  CHECK_NOTNULL(Environment::Get()->find("DMLC_NUM_SERVER"));
   num_servers_ = atoi(val);
-  if (van_mode == "zmq") {
-    num_keyranges_ = num_servers_;
-    chunky_message_ = false;
-  }
-  else {
-    num_keyranges_ = GetEnv("DMLC_NUM_KKERANGE", num_servers_);
-    chunky_message_ = true;
-  }
+  // if (van_mode == "zmq") {
+  //   num_keyranges_ = num_servers_;
+  //   chunky_message_ = false;
+  // }
+  // else {
+  //   num_keyranges_ = GetEnv("DMLC_NUM_KKERANGE", num_servers_);
+  //   chunky_message_ = true;
+  // }
+  num_keyranges_ = GetEnv("DMLC_NUM_KEYRANGE", num_servers_);
+  chunky_message_ = true;
   val = CHECK_NOTNULL(Environment::Get()->find("DMLC_ROLE"));
   std::string role(val);
   is_worker_ = role == "worker";

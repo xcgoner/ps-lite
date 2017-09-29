@@ -186,6 +186,10 @@ struct Meta {
   std::vector<DataType> data_type;
   /** \brief system control message */
   Control control;
+  /** \brief the iteration counter */
+  int iteration;
+  /** \brief fake flag */
+  bool fake;
 };
 /**
  * \brief messages that communicated amaong nodes.

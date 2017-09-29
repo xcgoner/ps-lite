@@ -1,0 +1,28 @@
+namespace ps;
+
+table FBNode {
+  role:int;
+  id:int;
+  hostname:string;
+  port:int;
+  is_recovery:bool;
+}
+
+table FBMetaData {
+  head:int;
+  body:string;
+  cmd:int;
+  node:[ps.FBNode];
+  barrier_group:int;
+  msg_sig:ulong;
+  request:bool;
+  sender_id:int;
+  customer_id:int;
+  timestamp:int;
+  data_type:[int];
+  push:bool;
+  simple_app:bool;
+  data:[string];
+}
+
+root_type FBMetaData;

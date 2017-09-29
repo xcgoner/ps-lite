@@ -102,11 +102,11 @@ class Van {
     /**
    * \brief pack meta and data into a string
    */
-   void PackMetaData(const Message& msg, int sender_id, char** data_buf, int* buf_size);
+   void PackMetaData(const Message& msg, int sender_id, uint8_t** data_buf, int* buf_size);
    /**
     * \brief unpack meta and data from a string
     */
-   void UnpackMetaData(const char* data_buf, int buf_size, Message* msg);
+   void UnpackMetaData(const uint8_t* data_buf, int buf_size, Message* msg);
 
   Node scheduler_;
   Node my_node_;
