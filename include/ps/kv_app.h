@@ -204,7 +204,7 @@ class KVWorker : public SimpleApp {
             SArray<int>* lens = nullptr,
             int cmd = 0,
             const Callback& cb = nullptr,
-            int* iteration = nullptr) {
+            int iteration = 0) {
     return Pull_(keys, vals, lens, cmd, cb, iteration);
   }
   using SlicedKVs = std::vector<std::pair<bool, KVPairs<Val>>>;
@@ -232,7 +232,7 @@ class KVWorker : public SimpleApp {
    */
   template <typename C, typename D>
   int Pull_(const SArray<Key>& keys, C* vals, D* lens,
-            int cmd, const Callback& cb, int* iteration);
+            int cmd, const Callback& cb, int iteration);
   /**
    * \brief add a callback for a request. threadsafe.
    * @param cb callback
@@ -269,6 +269,8 @@ class KVWorker : public SimpleApp {
   std::unordered_map<int, Callback> callbacks_;
   /** \brief lock */
   std::mutex mu_;
+  // /** \brief lock for iteration */
+  // std::mutex mu_itr_;
   /** \brief kv list slicer */
   Slicer slicer_;
 };
@@ -513,7 +515,7 @@ void KVWorker<Val>::Send(int timestamp, bool push, int cmd, const KVPairs<Val>& 
     msg.meta.push        = push;
     msg.meta.head        = cmd;
     msg.meta.timestamp   = timestamp;
-    msg.meta.iteration = iteration;
+    msg.meta.iteration   = iteration;
     // msg.meta.recver      = Postoffice::Get()->ServerRankToID(i);
     // key range rank -> server rank -> server id
     msg.meta.recver      = Postoffice::Get()->ServerRankToID(Postoffice::Get()->RangeToServerRank(i));
@@ -581,7 +583,7 @@ void KVWorker<Val>::RunCallback(int timestamp) {
 template <typename Val>
 template <typename C, typename D>
 int KVWorker<Val>::Pull_(
-    const SArray<Key>& keys, C* vals, D* lens, int cmd, const Callback& cb, int* iteration) {
+    const SArray<Key>& keys, C* vals, D* lens, int cmd, const Callback& cb, int iteration) {
   int ts = obj_->NewRequest(kServerGroup);
   AddCallback(ts, [this, ts, keys, vals, lens, cb, iteration]() mutable {
       mu_.lock();
@@ -628,7 +630,6 @@ int KVWorker<Val>::Pull_(
           memcpy(p_lens, s.lens.data(), s.lens.size() * sizeof(int));
           p_lens += s.lens.size();
         }
-        if (s.iteration > *iteration) *iteration = s.iteration;
       }
 
       mu_.lock();
@@ -638,6 +639,8 @@ int KVWorker<Val>::Pull_(
     });
 
   KVPairs<Val> kvs; kvs.keys = keys;
+  // send the desired iteration
+  kvs.iteration = iteration + 1;
   Send(ts, false, cmd, kvs);
   return ts;
 }
