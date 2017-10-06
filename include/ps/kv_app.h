@@ -3,6 +3,8 @@
  */
 #ifndef PS_KV_APP_H_
 #define PS_KV_APP_H_
+#include <ctime>
+#include <cstdlib>
 #include <algorithm>
 #include <utility>
 #include <vector>
@@ -73,6 +75,7 @@ class KVWorker : public SimpleApp {
     using namespace std::placeholders;
     slicer_ = std::bind(&KVWorker<Val>::DefaultSlicer, this, _1, _2, _3);
     obj_ = new Customer(app_id, std::bind(&KVWorker<Val>::Process, this, _1));
+    std::srand ( unsigned ( std::time(0) ) );
   }
 
   /** \brief deconstructor */
@@ -506,8 +509,13 @@ void KVWorker<Val>::Send(int timestamp, bool push, int cmd, const KVPairs<Val>& 
     RunCallback(timestamp);
   }
 
+  // random shuffle
+  std::vector<int> shuffled_index;
+  for (size_t i = 0; i < sliced.size(); ++i) shuffled_index.push_back(i);
+  std::random_shuffle( shuffled_index.begin(), shuffled_index.end() );
   for (size_t i = 0; i < sliced.size(); ++i) {
-    const auto& s = sliced[i];
+    int j = shuffled_index[i];
+    const auto& s = sliced[j];
     if (!s.first) continue;
     Message msg;
     msg.meta.customer_id = obj_->id();
@@ -518,7 +526,7 @@ void KVWorker<Val>::Send(int timestamp, bool push, int cmd, const KVPairs<Val>& 
     msg.meta.iteration   = iteration;
     // msg.meta.recver      = Postoffice::Get()->ServerRankToID(i);
     // key range rank -> server rank -> server id
-    msg.meta.recver      = Postoffice::Get()->ServerRankToID(Postoffice::Get()->RangeToServerRank(i));
+    msg.meta.recver      = Postoffice::Get()->ServerRankToID(Postoffice::Get()->RangeToServerRank(j));
     const auto& kvs = s.second;
     if (kvs.keys.size()) {
       msg.AddData(kvs.keys);
