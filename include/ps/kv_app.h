@@ -76,6 +76,14 @@ class KVWorker : public SimpleApp {
     slicer_ = std::bind(&KVWorker<Val>::DefaultSlicer, this, _1, _2, _3);
     obj_ = new Customer(app_id, std::bind(&KVWorker<Val>::Process, this, _1));
     std::srand ( unsigned ( std::time(0) ) );
+    const char *pull_threshold = Environment::Get()->find("DMLC_PS_PULL_THRESHOLD");
+    if (pull_threshold == nullptr) {
+      pull_threshold_ = 1;
+    }
+    else {
+      pull_threshold_ = atof(pull_threshold);
+      LG << "pull_threshold_: " << pull_threshold_;
+    }
   }
 
   /** \brief deconstructor */
@@ -276,6 +284,12 @@ class KVWorker : public SimpleApp {
   // std::mutex mu_itr_;
   /** \brief kv list slicer */
   Slicer slicer_;
+
+  // partial pull
+  double pull_threshold_;
+  std::unordered_map<Key, size_t> val_size_;
+  std::unordered_map<Key, size_t> len_size_;
+  std::unordered_map<Key, int> pull_iteration_;
 };
 
 /** \brief meta information about a kv request */
@@ -556,6 +570,10 @@ void KVWorker<Val>::Process(const Message& msg) {
     CHECK_GE(msg.data.size(), (size_t)2);
     KVPairs<Val> kvs;
     kvs.keys = msg.data[0];
+    if (msg.meta.iteration != pull_iteration_[kvs.keys[0]]) {
+      // LG << "ignore delayed pulling!";
+      return;
+    }
     kvs.vals = msg.data[1];
     if (msg.data.size() > (size_t)2) {
       kvs.lens = msg.data[2];
@@ -568,6 +586,10 @@ void KVWorker<Val>::Process(const Message& msg) {
 
   // finished, run callbacks
   if (obj_->NumResponse(ts) == Postoffice::Get()->GetServerKeyRanges().size() - 1)  {
+    RunCallback(ts);
+  }
+  else if (!msg.meta.push && msg.data.size() && msg.meta.iteration > 0 && (double)(obj_->NumResponse(ts)+1) >= Postoffice::Get()->GetServerKeyRanges().size() * pull_threshold_) {
+    // TODO: partial pull
     RunCallback(ts);
   }
 }
@@ -592,29 +614,52 @@ template <typename Val>
 template <typename C, typename D>
 int KVWorker<Val>::Pull_(
     const SArray<Key>& keys, C* vals, D* lens, int cmd, const Callback& cb, int iteration) {
+  int iteration_desired = iteration + 1;
+  for (int i = 0; i < keys.size(); i++) {
+    pull_iteration_[keys[i]] = iteration_desired;
+  }
   int ts = obj_->NewRequest(kServerGroup);
   AddCallback(ts, [this, ts, keys, vals, lens, cb, iteration]() mutable {
       mu_.lock();
       auto& kvs = recv_kvs_[ts];
       mu_.unlock();
 
-      // do check
-      size_t total_key = 0, total_val = 0;
-      for (const auto& s : kvs) {
-        Range range = FindRange(keys, s.keys.front(), s.keys.back()+1);
-        CHECK_EQ(range.size(), s.keys.size())
-            << "unmatched keys size from one server";
-        if (lens) CHECK_EQ(s.lens.size(), s.keys.size());
-        total_key += s.keys.size();
-        total_val += s.vals.size();
+      for (int i = 0; i < keys.size(); i++) {
+        pull_iteration_[keys[i]] = pull_iteration_[keys[i]]+1;
       }
-      CHECK_EQ(total_key, keys.size()) << "lost some servers?";
 
-      // fill vals and lens
-      std::sort(kvs.begin(), kvs.end(), [](
-          const KVPairs<Val>& a, const KVPairs<Val>& b) {
-                  return a.keys.front() < b.keys.front();
-        });
+      // partial pull, do not check anymore
+      // // do check
+      // size_t total_key = 0, total_val = 0;
+      // for (const auto& s : kvs) {
+      //   Range range = FindRange(keys, s.keys.front(), s.keys.back()+1);
+      //   CHECK_EQ(range.size(), s.keys.size())
+      //       << "unmatched keys size from one server";
+      //   if (lens) CHECK_EQ(s.lens.size(), s.keys.size());
+      //   total_key += s.keys.size();
+      //   total_val += s.vals.size();
+      // }
+      // CHECK_EQ(total_key, keys.size()) << "lost some servers?";
+
+      size_t total_val = 0;
+      if (iteration == -1) {
+        // the first pull
+        for (const auto& s : kvs) {
+          // record the offset
+          val_size_[s.keys[0]] = s.vals.size();
+          if (lens) len_size_[s.keys[0]] = s.lens.size();
+        }
+      }
+      for (int i = 0; i < keys.size(); i++) {
+        total_val += val_size_[keys[i]];
+      }
+
+      // // fill vals and lens
+      // std::sort(kvs.begin(), kvs.end(), [](
+      //     const KVPairs<Val>& a, const KVPairs<Val>& b) {
+      //             return a.keys.front() < b.keys.front();
+      //   });
+
       CHECK_NOTNULL(vals);
       if (vals->empty()) {
         vals->resize(total_val);
@@ -631,12 +676,38 @@ int KVWorker<Val>::Pull_(
         }
         p_lens = lens->data();
       }
-      for (const auto& s : kvs) {
-        memcpy(p_vals, s.vals.data(), s.vals.size() * sizeof(Val));
-        p_vals += s.vals.size();
-        if (p_lens) {
-          memcpy(p_lens, s.lens.data(), s.lens.size() * sizeof(int));
-          p_lens += s.lens.size();
+
+      // for (const auto& s : kvs) {
+      //   memcpy(p_vals, s.vals.data(), s.vals.size() * sizeof(Val));
+      //   p_vals += s.vals.size();
+      //   if (p_lens) {
+      //     memcpy(p_lens, s.lens.data(), s.lens.size() * sizeof(int));
+      //     p_lens += s.lens.size();
+      //   }
+      //   // LG << s.iteration << ", " << iteration;
+      // }
+
+      for (int i = 0; i < keys.size(); i++) {
+        Key key = keys[i];
+        bool key_found = false;
+        for (const auto& s : kvs) {
+          if (s.keys[0] == key) {
+            key_found = true;
+            memcpy(p_vals, s.vals.data(), s.vals.size() * sizeof(Val));
+            p_vals += s.vals.size();
+            if (p_lens) {
+              memcpy(p_lens, s.lens.data(), s.lens.size() * sizeof(int));
+              p_lens += s.lens.size();
+            }
+          }
+        }
+        if (!key_found) {
+          // partial pull
+          // LG << "some pulling is skipped";
+          p_vals += val_size_[key];
+          if (p_lens) {
+            p_lens += len_size_[key];
+          }
         }
       }
 
