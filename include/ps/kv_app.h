@@ -5,6 +5,7 @@
 #define PS_KV_APP_H_
 #include <ctime>
 #include <cstdlib>
+#include <cmath>
 #include <algorithm>
 #include <utility>
 #include <vector>
@@ -717,7 +718,23 @@ int KVWorker<Val>::Pull_(
       if (cb) cb();
     });
 
-  KVPairs<Val> kvs; kvs.keys = keys;
+  KVPairs<Val> kvs; 
+  int pull_threshold = (int) ceil(keys.size() * pull_threshold_);
+  if (keys.size() <= pull_threshold || iteration == -1) {
+    kvs.keys = keys;
+  }
+  else {
+    // randomly select pulling
+    std::vector<int> key_index;
+    for (int i = 0; i < keys.size(); i++) {
+      key_index.push_back(i);
+    }
+    std::random_shuffle(key_index.begin(), key_index.end());
+    std::sort(key_index.begin(), key_index.begin()+pull_threshold); 
+    for (int i = 0; i < pull_threshold; i++) {
+      kvs.keys.push_back(keys[key_index[i]]);
+    }
+  }
   // send the desired iteration
   kvs.iteration = iteration + 1;
   Send(ts, false, cmd, kvs);
