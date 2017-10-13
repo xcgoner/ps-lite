@@ -571,7 +571,7 @@ void KVWorker<Val>::Process(const Message& msg) {
     CHECK_GE(msg.data.size(), (size_t)2);
     KVPairs<Val> kvs;
     kvs.keys = msg.data[0];
-    if (msg.meta.iteration <= pull_iteration_[kvs.keys[0]]) {
+    if (msg.meta.iteration < pull_iteration_[kvs.keys[0]]) {
       // LG << "ignore delayed pulling!";
       return;
     }
