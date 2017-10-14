@@ -346,7 +346,10 @@ class KVServer : public SimpleApp {
   }
 
   /** \brief deconstructor */
-  virtual ~KVServer() { delete obj_; obj_ = nullptr; }
+  virtual ~KVServer() { 
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    delete obj_; obj_ = nullptr; 
+  }
 
   /**
    * \brief the handle to process a push/pull request from a worker
