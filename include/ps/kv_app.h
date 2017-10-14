@@ -465,9 +465,9 @@ void KVServer<Val>::Response(const KVMeta& req, const KVPairs<Val>& res) {
     }
   }
   if (!req.push && Postoffice::Get()->my_rank() == 0 && pull_delay_ > 0 && rand() % 500 == 0) {
-    LG << "sleeping start";
+    // LG << "sleeping start";
     std::this_thread::sleep_for(std::chrono::milliseconds(pull_delay_));
-    LG << "sleeping end";
+    // LG << "sleeping end";
   }
   Postoffice::Get()->van()->Send(msg);
 }
