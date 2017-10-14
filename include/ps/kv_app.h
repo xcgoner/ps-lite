@@ -730,7 +730,7 @@ int KVWorker<Val>::Pull_(
 
   KVPairs<Val> kvs; 
   int pull_threshold = (int) ceil(keys.size() * pull_threshold_);
-  if (keys.size() <= pull_threshold || iteration == -1) {
+  if (!partial_pull_active_ || keys.size() <= pull_threshold || iteration == -1) {
     kvs.keys = keys;
   }
   else {
