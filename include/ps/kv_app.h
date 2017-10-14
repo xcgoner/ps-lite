@@ -93,6 +93,15 @@ class KVWorker : public SimpleApp {
     if (partial_pull_active_) {
       LG << "Actively partial pull!";
     }
+
+    const char *pull_delay = Environment::Get()->find("DMLC_PS_PULL_DELAY");
+    if (partial_pull_active == nullptr) {
+      pull_delay_ = 0;
+    }
+    else {
+      pull_delay_ = atoi(pull_delay);
+      LG << "Testing pull delay: " << pull_delay_ << "ms";
+    }
   }
 
   /** \brief deconstructor */
@@ -301,6 +310,8 @@ class KVWorker : public SimpleApp {
   std::unordered_map<Key, int> pull_iteration_;
   // actively partial pulling 
   bool partial_pull_active_;
+  // only for simulating message delay
+  int pull_delay_;
 };
 
 /** \brief meta information about a kv request */
@@ -450,6 +461,9 @@ void KVServer<Val>::Response(const KVMeta& req, const KVPairs<Val>& res) {
     if (res.lens.size()) {
       msg.AddData(res.lens);
     }
+  }
+  if (!req.push && ps::MyRank() == 0 && pull_delay_ > 0 && rand() % 10 == 0) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(pull_delay_));
   }
   Postoffice::Get()->van()->Send(msg);
 }
