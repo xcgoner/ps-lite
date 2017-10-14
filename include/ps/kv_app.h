@@ -77,6 +77,7 @@ class KVWorker : public SimpleApp {
     slicer_ = std::bind(&KVWorker<Val>::DefaultSlicer, this, _1, _2, _3);
     obj_ = new Customer(app_id, std::bind(&KVWorker<Val>::Process, this, _1));
     std::srand ( unsigned ( std::time(0) ) );
+    partial_pull_active_ = false;
     const char *pull_threshold = Environment::Get()->find("DMLC_PS_PULL_THRESHOLD");
     if (pull_threshold == nullptr) {
       pull_threshold_ = 1;
@@ -84,6 +85,13 @@ class KVWorker : public SimpleApp {
     else {
       pull_threshold_ = atof(pull_threshold);
       LG << "pull_threshold_: " << pull_threshold_;
+      const char *partial_pull_active = Environment::Get()->find("DMLC_PS_PARTIAL_PULL_ACTIVE");
+      if (partial_pull_active != nullptr) {
+        partial_pull_active_ = atoi(partial_pull_active);
+      }
+    }
+    if (partial_pull_active_) {
+      LG << "Actively partial pull!";
     }
   }
 
@@ -291,6 +299,8 @@ class KVWorker : public SimpleApp {
   std::unordered_map<Key, size_t> val_size_;
   std::unordered_map<Key, size_t> len_size_;
   std::unordered_map<Key, int> pull_iteration_;
+  // actively partial pulling 
+  bool partial_pull_active_;
 };
 
 /** \brief meta information about a kv request */
