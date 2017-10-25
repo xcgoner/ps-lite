@@ -303,6 +303,10 @@ class KVWorker : public SimpleApp {
   std::unordered_map<Key, int> pull_iteration_;
   // actively partial pulling 
   bool partial_pull_active_;
+
+  // debug
+  std::unordered_map<int, std::chrono::high_resolution_clock::time_point> pull_timer_;
+  std::vector<double> pull_delay_;
 };
 
 /** \brief meta information about a kv request */
@@ -606,6 +610,19 @@ void KVWorker<Val>::Process(const Message& msg) {
       // LG << "ignore delayed pulling!";
       return;
     }
+
+    // debug
+    std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
+    pull_delay_.push_back(std::chrono::duration_cast<std::chrono::duration<double>>(t2 - pull_timer_[kvs.keys[0]]).count());
+    if (pull_delay_.size() % 100 == 0) {
+      std::ostringstream delay_list;
+      delay_list << "delay_list: ";
+      for (int i = 0; i < pull_delay_.size(); i++) {
+        delay_list << pull_delay_[i] << ", ";
+      }
+      LG << delay_list.str();
+    }
+
     kvs.vals = msg.data[1];
     if (msg.data.size() > (size_t)2) {
       kvs.lens = msg.data[2];
@@ -769,6 +786,12 @@ int KVWorker<Val>::Pull_(
   // send the desired iteration
   kvs.iteration = iteration + 1;
   Send(ts, false, cmd, kvs);
+
+  // debug
+  for (int i = 0; i < kvs.keys.size(); i++) {
+    pull_timer_[kvs.keys[i]] = std::chrono::high_resolution_clock::now();
+  }
+
   return ts;
 }
 
