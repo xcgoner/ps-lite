@@ -66,11 +66,12 @@ struct Node {
   /** \brief default constructor */
   Node() : id(kEmpty), port(kEmpty), is_recovery(false) {}
   /** \brief node roles */
-  enum Role { SERVER, WORKER, SCHEDULER };
+  enum Role { SERVER, WORKER, SCHEDULER, VALIDATOR };
   /** \brief get debug string */
   std::string DebugString() const {
     std::stringstream ss;
-    ss << "role=" << (role == SERVER ? "server" : (role == WORKER ? "worker" : "scheduler"))
+    //  TODO: add validator
+    ss << "role=" << (role == SERVER ? "server" : (role == WORKER ? "worker" : (role == VALIDATOR ? "validator" : "scheduler")))
        << (id != kEmpty ? ", id=" + std::to_string(id) : "")
        << ", ip=" << hostname << ", port=" << port << ", is_recovery=" << is_recovery;
 
@@ -78,6 +79,7 @@ struct Node {
   }
   /** \brief get short debug string */
   std::string ShortDebugString() const {
+    // TODO: add validator
     std::string str = role == SERVER ? "S" : (role == WORKER ? "W" : "H");
     if (id != kEmpty) str += "[" + std::to_string(id) + "]";
     return str;

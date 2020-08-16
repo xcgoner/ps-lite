@@ -96,15 +96,34 @@ class Postoffice {
    * \brief convert from a worker rank into a node id
    * \param rank the worker rank
    */
-  static inline int WorkerRankToID(int rank) {
-    return rank * 2 + 9;
+ static inline int WorkerRankToID(int rank) {
+    return rank * 3 + 17;
   }
   /**
    * \brief convert from a server rank into a node id
    * \param rank the server rank
    */
   static inline int ServerRankToID(int rank) {
-    return rank * 2 + 8;
+    return rank * 3 + 16;
+  }
+  /**
+   * \brief convert from a validator rank into a node id
+   * \param rank the validator rank
+   */
+  static inline int ValidatorRankToID(int rank) {
+    return rank * 3 + 18;
+  }
+  /**
+   * \brief convert from a node id into a rold
+   * \param id the node id
+   */
+  static inline Node::Role IDtoRole(int id) {
+    if (id < 16) return Node::SCHEDULER;
+    // 0: server, 1: worker, 2: validator
+    int role_id = (id - 16) % 3;
+    if (role_id == 0) return Node::SERVER;
+    if (role_id == 1) return Node::WORKER;
+    return Node::VALIDATOR;
   }
   /**
    * \brief convert from a node id into a server or worker rank
@@ -114,12 +133,14 @@ class Postoffice {
 #ifdef _MSC_VER
 #undef max
 #endif
-    return std::max((id - 8) / 2, 0);
+    return std::max((id - 16) / 3, 0);
   }
   /** \brief Returns the number of worker nodes */
   int num_workers() const { return num_workers_; }
   /** \brief Returns the number of server nodes */
   int num_servers() const { return num_servers_; }
+  /** \brief Returns the number of validator nodes */
+  int num_validators() const { return num_validators_; }
   /** \brief Returns the rank of this node in its group
    *
    * Each worker will have a unique rank within [0, NumWorkers()). So are
@@ -132,6 +153,8 @@ class Postoffice {
   int is_server() const { return is_server_; }
   /** \brief Returns true if this node is a scheduler node. */
   int is_scheduler() const { return is_scheduler_; }
+  /** \brief Returns true if this node is a validator node. */
+  int is_validator() const { return is_validator_; }
   /** \brief Returns the verbose level. */
   int verbose() const { return verbose_; }
   /** \brief Return whether this node is a recovery node */
@@ -173,8 +196,8 @@ class Postoffice {
   std::unordered_map<int, std::vector<int>> node_ids_;
   std::mutex server_key_ranges_mu_;
   std::vector<Range> server_key_ranges_;
-  bool is_worker_, is_server_, is_scheduler_;
-  int num_servers_, num_workers_;
+  bool is_worker_, is_server_, is_scheduler_, is_validator_;
+  int num_servers_, num_workers_, num_validators_;
   std::unordered_map<int, std::unordered_map<int, bool> > barrier_done_;
   int verbose_;
   std::mutex barrier_mu_;

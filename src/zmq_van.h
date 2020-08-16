@@ -117,7 +117,7 @@ class ZMQVan : public Van {
       }
     }
     std::lock_guard<std::mutex> lk(mu_);
-    is_worker_ = (node.role == Node::WORKER ? true : false);
+    is_worker_ = ((node.role == Node::WORKER || node.role == Node::VALIDATOR) ? true : false);
     auto t = new std::thread(&ZMQVan::CallZmqRecvThread, this, (void*) receiver_);
     thread_list_.push_back(t);
 
@@ -240,10 +240,10 @@ class ZMQVan : public Van {
     void* socket;
 
     if (msg.meta.simple_app || !msg.meta.control.empty()
-               || (GetRoleFromId(id) != Node::WORKER)) {
+               || ((GetRoleFromId(id) != Node::WORKER) && (GetRoleFromId(id) != Node::VALIDATOR))) {
       socket = it->second;
     }
-    else { // data msg, and recver is WORKER
+    else { // data msg, and recver is WORKER or VALIDATOR
       socket = receiver_; // scheduler/server using receiver socket --> worker sender socket
 
       // first, send dst id
@@ -394,9 +394,7 @@ class ZMQVan : public Van {
   }
 
   Node::Role GetRoleFromId(int id) {
-    if (id < 8) return Node::SCHEDULER;
-    if (id % 2) return Node::WORKER;
-    return Node::SERVER;
+    return Postoffice::IDtoRole(id);
   }
 
   void* context_ = nullptr;
@@ -407,6 +405,7 @@ class ZMQVan : public Van {
   std::mutex mu_;
   void* receiver_ = nullptr;
 
+  // zmq_van does not distinguish worker and validator
   bool is_worker_;
 
   // Recv buffer queue

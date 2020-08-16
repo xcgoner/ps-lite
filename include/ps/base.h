@@ -23,6 +23,8 @@ static const int kScheduler = 1;
 static const int kServerGroup = 2;
 /** \brief the worker node group ID */
 static const int kWorkerGroup = 4;
+/** \brief the validator node group ID */
+static const int kValidatorGroup = 8;
 
 }  // namespace ps
 #endif  // PS_BASE_H_

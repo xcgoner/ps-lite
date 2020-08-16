@@ -16,12 +16,16 @@ namespace ps {
 inline int NumWorkers() { return Postoffice::Get()->num_workers(); }
 /** \brief Returns the number of server nodes */
 inline int NumServers() { return Postoffice::Get()->num_servers(); }
+/** \brief Returns the number of validator nodes */
+inline int NumValidators() { return Postoffice::Get()->num_validators(); }
 /** \brief Returns true if this node is a worker node */
 inline bool IsWorker() { return Postoffice::Get()->is_worker(); }
 /** \brief Returns true if this node is a server node. */
 inline bool IsServer() { return Postoffice::Get()->is_server(); }
 /** \brief Returns true if this node is a scheduler node. */
 inline bool IsScheduler() { return Postoffice::Get()->is_scheduler(); }
+/** \brief Returns true if this node is a validator node. */
+inline bool IsValidator() { return Postoffice::Get()->is_validator(); }
 /** \brief Returns the rank of this node in its group
  *
  * Each worker will have a unique rank within [0, NumWorkers()). So are

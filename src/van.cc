@@ -45,6 +45,7 @@ Van *Van::Create(const std::string &type) {
       sysvar = std::string(getenv("PROFILE_PATH"));
     std::string CONST_WORKER_STR ("worker");
     std::string CONST_SERVER_STR ("server");
+    std::string CONST_VALIDATOR_STR ("validator");
 
     std::chrono::microseconds ms = std::chrono::duration_cast< std::chrono::microseconds >(std::chrono::system_clock::now().time_since_epoch());
     std::stringstream temp_stream;
@@ -52,11 +53,21 @@ Van *Van::Create(const std::string &type) {
     temp_stream << ms.count();
     temp_stream >> ts_string;
     if (CONST_WORKER_STR == getenv("DMLC_ROLE")){
-      if(sysvar.length()==0){
-        fout_.open("pslite_profile_van_worker_"+ts_string, std::fstream::out);
+      if (CONST_WORKER_STR == getenv("DMLC_WORKER_TYPE")){
+        if(sysvar.length()==0){
+          fout_.open("pslite_profile_van_worker_"+ts_string, std::fstream::out);
+        }
+        else{
+          fout_.open(sysvar + "_van_worker", std::fstream::out);
+        }
       }
-      else{
-        fout_.open(sysvar + "_van_worker", std::fstream::out);
+      else if (CONST_VALIDATOR_STR == getenv("DMLC_WORKER_TYPE")){
+        if(sysvar.length()==0){
+          fout_.open("pslite_profile_van_validator_"+ts_string, std::fstream::out);
+        }
+        else{
+          fout_.open(sysvar + "_van_validator", std::fstream::out);
+        }
       }
     }
     else if (CONST_SERVER_STR == getenv("DMLC_ROLE")){
@@ -91,7 +102,7 @@ void Van::ProcessTerminateCommand() {
 void Van::ProcessAddNodeCommandAtScheduler(Message *msg, Meta *nodes, Meta *recovery_nodes) {
   recovery_nodes->control.cmd = Control::ADD_NODE;
   time_t t = time(NULL);
-  size_t num_nodes = Postoffice::Get()->num_servers() + Postoffice::Get()->num_workers();
+  size_t num_nodes = Postoffice::Get()->num_servers() + Postoffice::Get()->num_workers() + Postoffice::Get()->num_validators();
   if (nodes->control.node.size() == num_nodes) {
     bool mixed_mode = 
         getenv("BYTEPS_ENABLE_MIXED_MODE") 
@@ -123,7 +134,7 @@ void Van::ProcessAddNodeCommandAtScheduler(Message *msg, Meta *nodes, Meta *reco
           PS_VLOG(1) << "Non-Colocate Server: " << node_host_ip;
           CHECK_EQ(node.role, Node::SERVER);
         } else {
-          PS_VLOG(1) << "Colocated " << ((node.role == Node::SERVER) ? "Server" : "Worker") << ": \t" << node_host_ip;
+          PS_VLOG(1) << "Colocated " << ((node.role == Node::SERVER) ? "Server" : ((node.role == Node::WORKER) ? "Worker" : "Validator")) << ": \t" << node_host_ip;
         }
       }
     } else if (sparse_mode) {
@@ -165,29 +176,37 @@ void Van::ProcessAddNodeCommandAtScheduler(Message *msg, Meta *nodes, Meta *reco
     // assign node rank
     for (auto &node : nodes->control.node) {
       std::string node_host_ip = node.hostname + ":" + std::to_string(node.port);
+      int id;
+      if (node.role == Node::SERVER) {
+        id = Postoffice::ServerRankToID(num_servers_);
+        num_servers_++;
+      }
+      else if (node.role == Node::WORKER) {
+        id = Postoffice::WorkerRankToID(num_workers_);
+        num_workers_++;
+      }
+      else if (node.role == Node::VALIDATOR) {
+        id = Postoffice::ValidatorRankToID(num_validators_);
+        num_validators_++;
+      }
       if (connected_nodes_.find(node_host_ip) == connected_nodes_.end()) {
         CHECK_EQ(node.id, Node::kEmpty);
-        int id = node.role == Node::SERVER ? Postoffice::ServerRankToID(num_servers_)
-                                           : Postoffice::WorkerRankToID(num_workers_);
+
         PS_VLOG(1) << "assign rank=" << id << " to node " << node.DebugString();
         node.id = id;
         Connect(node);
         Postoffice::Get()->UpdateHeartbeat(node.id, t);
         connected_nodes_[node_host_ip] = id;
       } else {
-        int id = node.role == Node::SERVER ? Postoffice::ServerRankToID(num_servers_)
-                                           : Postoffice::WorkerRankToID(num_workers_);
         shared_node_mapping_[id] = connected_nodes_[node_host_ip];
         node.id = connected_nodes_[node_host_ip];
       }
-      if (node.role == Node::SERVER) num_servers_++;
-      if (node.role == Node::WORKER) num_workers_++;
     }
     nodes->control.node.push_back(my_node_);
     nodes->control.cmd = Control::ADD_NODE;
     Message back;
     back.meta = *nodes;
-    for (int r : Postoffice::Get()->GetNodeIDs(kWorkerGroup + kServerGroup)) {
+    for (int r : Postoffice::Get()->GetNodeIDs(kWorkerGroup + kServerGroup + kValidatorGroup)) {
       int recver_id = r;
       if (shared_node_mapping_.find(r) == shared_node_mapping_.end()) {
         back.meta.recver = recver_id;
@@ -195,8 +214,8 @@ void Van::ProcessAddNodeCommandAtScheduler(Message *msg, Meta *nodes, Meta *reco
         Send(back);
       }
     }
-    PS_VLOG(1) << "the scheduler is connected to " << num_workers_ << " workers and "
-               << num_servers_ << " servers";
+    PS_VLOG(1) << "the scheduler is connected to " << num_workers_ << " workers,  "
+               << num_servers_ << " servers, and " << num_validators_ << " validators";
     ready_ = true;
   } else if (!recovery_nodes->control.node.empty()) {
     auto dead_nodes = Postoffice::Get()->GetDeadNodes(heartbeat_timeout_);
@@ -206,7 +225,7 @@ void Van::ProcessAddNodeCommandAtScheduler(Message *msg, Meta *nodes, Meta *reco
     Connect(recovery_nodes->control.node[0]);
     Postoffice::Get()->UpdateHeartbeat(recovery_nodes->control.node[0].id, t);
     Message back;
-    for (int r : Postoffice::Get()->GetNodeIDs(kWorkerGroup + kServerGroup)) {
+    for (int r : Postoffice::Get()->GetNodeIDs(kWorkerGroup + kServerGroup + kValidatorGroup)) {
       if (r != recovery_nodes->control.node[0].id && dead_set.find(r) != dead_set.end()) {
         // do not try to send anything to dead node
         continue;
@@ -224,7 +243,7 @@ void Van::ProcessAddNodeCommandAtScheduler(Message *msg, Meta *nodes, Meta *reco
 void Van::UpdateLocalID(Message* msg, std::unordered_set<int>* deadnodes_set,
                         Meta* nodes, Meta* recovery_nodes) {
   auto& ctrl = msg->meta.control;
-  size_t num_nodes = Postoffice::Get()->num_servers() + Postoffice::Get()->num_workers();
+  size_t num_nodes = Postoffice::Get()->num_servers() + Postoffice::Get()->num_workers() + Postoffice::Get()->num_validators();
   // assign an id
   if (msg->meta.sender == Meta::kEmpty) {
     CHECK(is_scheduler_);
@@ -290,7 +309,7 @@ void Van::ProcessBarrierCommand(Message *msg) {
   auto &ctrl = msg->meta.control;
   if (msg->meta.request) {
     if (barrier_count_.empty()) {
-      barrier_count_.resize(8, 0);
+      barrier_count_.resize(16, 0);
     }
     int group = ctrl.barrier_group;
     ++barrier_count_[group];
@@ -322,7 +341,7 @@ void Van::ProcessDataMsg(Message *msg) {
   CHECK_NE(msg->meta.recver, Meta::kEmpty);
   CHECK_NE(msg->meta.app_id, Meta::kEmpty);
   int app_id = msg->meta.app_id;
-  int customer_id = Postoffice::Get()->is_worker() ? msg->meta.customer_id : app_id;
+  int customer_id = (Postoffice::Get()->is_worker() || Postoffice::Get()->is_validator()) ? msg->meta.customer_id : app_id;
   auto *obj = Postoffice::Get()->GetCustomer(app_id, customer_id, 5);
   CHECK(obj) << "timeout (5 sec) to wait App " << app_id << " customer " << customer_id
              << " ready at " << my_node_.role;
@@ -337,6 +356,12 @@ void Van::ProcessDataMsg(Message *msg) {
         fout_ << (uint8_t)msg->data[0].data()[0] + 256 * (uint8_t)msg->data[0].data()[1] << "\tworker_van_recv_push\t" << ms.count() << "\n";
       else
         fout_ << (uint8_t)msg->data[0].data()[0] + 256 * (uint8_t)msg->data[0].data()[1] << "\tworker_van_recv_pull\t" << ms.count() << "\n";
+    }
+    else if (Postoffice::Get()->is_validator()){ // is validator
+      if (msg->meta.push)
+        fout_ << (uint8_t)msg->data[0].data()[0] + 256 * (uint8_t)msg->data[0].data()[1] << "\tvalidator_van_recv_push\t" << ms.count() << "\n";
+      else
+        fout_ << (uint8_t)msg->data[0].data()[0] + 256 * (uint8_t)msg->data[0].data()[1] << "\tvalidator_van_recv_pull\t" << ms.count() << "\n";
     }
     else{ // is server
       if (msg->meta.push)
@@ -366,6 +391,7 @@ void Van::ProcessAddNodeCommand(Message *msg, Meta *nodes, Meta *recovery_nodes)
       }
       if (!node.is_recovery && node.role == Node::SERVER) ++num_servers_;
       if (!node.is_recovery && node.role == Node::WORKER) ++num_workers_;
+      if (!node.is_recovery && node.role == Node::VALIDATOR) ++num_validators_;
     }
     PS_VLOG(1) << my_node_.ShortDebugString() << " is connected to others";
     ready_ = true;
@@ -387,7 +413,7 @@ void Van::Start(int customer_id) {
     if (is_scheduler_) {
       my_node_ = scheduler_;
     } else {
-      auto role = Postoffice::Get()->is_worker() ? Node::WORKER : Node::SERVER;
+      auto role = Postoffice::Get()->is_worker() ? Node::WORKER : (Postoffice::Get()->is_server() ? Node::SERVER : Node::VALIDATOR);
       const char *nhost = Environment::Get()->find("DMLC_NODE_HOST");
       std::string ip;
       if (nhost) ip = std::string(nhost);

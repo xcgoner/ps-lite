@@ -153,7 +153,7 @@ class RDMAVan : public Van {
     CHECK_NE(node.port, node.kEmpty);
     CHECK(node.hostname.size());
 
-    // worker doesn't need to connect to the other workers. same for server
+    // worker or validator doesn't need to connect to the other workers. same for server
     if ((node.role == my_node_.role) && (node.id != my_node_.id)) {
       return;
     }

@@ -26,11 +26,25 @@ void Postoffice::InitEnvironment() {
   num_workers_ = atoi(val);
   val =  CHECK_NOTNULL(Environment::Get()->find("DMLC_NUM_SERVER"));
   num_servers_ = atoi(val);
+  num_validators_ = GetEnv("DMLC_NUM_VALIDATOR", 0);
+  // debug
+  std::cout << "num_validators_ = " << num_validators_ << std::endl;
   val = CHECK_NOTNULL(Environment::Get()->find("DMLC_ROLE"));
   std::string role(val);
-  is_worker_ = role == "worker";
+  // debug
+  std::cout << "role = " << role << std::endl;
   is_server_ = role == "server";
   is_scheduler_ = role == "scheduler";
+  if (role == "worker") {
+    val = CHECK_NOTNULL(Environment::Get()->find("DMLC_WORKER_TYPE"));
+    std::string worker_type(val);
+    is_worker_ = worker_type == "worker";
+    is_validator_ = worker_type == "validator";
+  }
+  else {
+    is_worker_ = false;
+    is_validator_ = false;
+  }
   verbose_ = GetEnv("PS_VERBOSE", 0);
 }
 
@@ -48,26 +62,57 @@ void Postoffice::Start(int customer_id, const char* argv0, const bool do_barrier
     // init node info.
     for (int i = 0; i < num_workers_; ++i) {
       int id = WorkerRankToID(i);
-      for (int g : {id, kWorkerGroup, kWorkerGroup + kServerGroup,
+      for (int g : {id, kWorkerGroup, 
+                    kWorkerGroup + kServerGroup,
                     kWorkerGroup + kScheduler,
-                    kWorkerGroup + kServerGroup + kScheduler}) {
+                    kWorkerGroup + kValidatorGroup,
+                    kWorkerGroup + kServerGroup + kScheduler,
+                    kWorkerGroup + kServerGroup + kValidatorGroup,
+                    kWorkerGroup + kValidatorGroup + kScheduler,
+                    kWorkerGroup + kServerGroup + kScheduler + kValidatorGroup}) {
         node_ids_[g].push_back(id);
       }
     }
 
     for (int i = 0; i < num_servers_; ++i) {
       int id = ServerRankToID(i);
-      for (int g : {id, kServerGroup, kWorkerGroup + kServerGroup,
+      for (int g : {id, kServerGroup, 
+                    kServerGroup + kWorkerGroup,
                     kServerGroup + kScheduler,
-                    kWorkerGroup + kServerGroup + kScheduler}) {
+                    kServerGroup + kValidatorGroup,
+                    kServerGroup + kWorkerGroup + kScheduler,
+                    kServerGroup + kWorkerGroup + kValidatorGroup,
+                    kServerGroup + kValidatorGroup + kScheduler,
+                    kWorkerGroup + kServerGroup + kScheduler + kValidatorGroup}) {
         node_ids_[g].push_back(id);
       }
     }
 
-    for (int g : {kScheduler, kScheduler + kServerGroup + kWorkerGroup,
-                  kScheduler + kWorkerGroup, kScheduler + kServerGroup}) {
+    for (int g : {kScheduler, 
+                  kScheduler + kWorkerGroup,
+                  kScheduler + kServerGroup,
+                  kScheduler + kValidatorGroup,
+                  kScheduler + kWorkerGroup + kServerGroup,
+                  kScheduler + kWorkerGroup + kValidatorGroup,
+                  kScheduler + kValidatorGroup + kServerGroup,
+                  kWorkerGroup + kServerGroup + kScheduler + kValidatorGroup}) {
       node_ids_[g].push_back(kScheduler);
     }
+
+    for (int i = 0; i < num_validators_; ++i) {
+      int id = ValidatorRankToID(i);
+      for (int g : {id, kValidatorGroup, 
+                    kValidatorGroup + kServerGroup,
+                    kValidatorGroup + kScheduler,
+                    kValidatorGroup + kWorkerGroup,
+                    kValidatorGroup + kServerGroup + kScheduler,
+                    kValidatorGroup + kServerGroup + kWorkerGroup,
+                    kValidatorGroup + kWorkerGroup + kScheduler,
+                    kWorkerGroup + kServerGroup + kScheduler + kValidatorGroup}) {
+        node_ids_[g].push_back(id);
+      }
+    }
+    
     init_stage_++;
   }
   start_mu_.unlock();
@@ -83,14 +128,15 @@ void Postoffice::Start(int customer_id, const char* argv0, const bool do_barrier
   }
   start_mu_.unlock();
   // do a barrier here
-  if (do_barrier) Barrier(customer_id, kWorkerGroup + kServerGroup + kScheduler);
+  if (do_barrier) Barrier(customer_id, kWorkerGroup + kServerGroup + kScheduler + kValidatorGroup);
 }
 
 void Postoffice::Finalize(const int customer_id, const bool do_barrier) {
-  if (do_barrier) Barrier(customer_id, kWorkerGroup + kServerGroup + kScheduler);
+  if (do_barrier) Barrier(customer_id, kWorkerGroup + kServerGroup + kScheduler + kValidatorGroup);
   if (customer_id == 0) {
     num_workers_ = 0;
     num_servers_ = 0;
+    num_validators_ = 0;
     van_->Stop();
     init_stage_ = 0;
     customers_.clear();
@@ -153,6 +199,8 @@ void Postoffice::Barrier(int customer_id, int node_group) {
     CHECK(node_group & kWorkerGroup);
   } else if (role == Node::SERVER) {
     CHECK(node_group & kServerGroup);
+  } else if (role == Node::VALIDATOR) {
+    CHECK(node_group & kValidatorGroup);
   }
   std::unique_lock<std::mutex> ulk(barrier_mu_);
   barrier_done_[0][customer_id] = false;
@@ -203,7 +251,7 @@ std::vector<int> Postoffice::GetDeadNodes(int t) {
 
   time_t curr_time = time(NULL);
   const auto& nodes = is_scheduler_
-    ? GetNodeIDs(kWorkerGroup + kServerGroup)
+    ? GetNodeIDs(kWorkerGroup + kServerGroup + kValidatorGroup)
     : GetNodeIDs(kScheduler);
   {
     std::lock_guard<std::mutex> lk(heartbeat_mu_);
